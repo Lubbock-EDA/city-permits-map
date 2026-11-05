@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Lubbock Permits Map</title>
+
+  <!-- Leaflet: the free mapping library. One line for its styles, one for its code. -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    /* Make the page fill the whole browser window, with no white border */
+    html, body { height: 100%; margin: 0; }
+    /* The map's box: full width, full height */
+    #map { height: 100%; }
+
+    /* The filter panel: a white card floating over the top-right of the map */
+    #filters {
+      position: absolute;        /* float on top of the map instead of pushing it down */
+      top: 12px;
+      right: 12px;
+      z-index: 1000;             /* stack it above the map (bigger number = higher) */
+      background: white;
+      padding: 12px 14px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #243746;
+      width: 220px;
+    }
+    /* Each label sits on its own line above its dropdown */
+    #filters label { display: block; margin-top: 8px; font-weight: bold; }
+    #filters select { width: 100%; margin-top: 3px; padding: 4px; }
+    #countLabel { margin-top: 10px; font-size: 12px; color: #555; }
+
+    /* The category checkbox list: a scrolling box if it gets tall */
+    #categoryBox {
+      max-height: 260px;
+      overflow-y: auto;          /* add a scrollbar instead of growing forever */
+      margin-top: 3px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 4px 6px;
+    }
+    /* Each checkbox + its text on one line */
+    #categoryBox label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 3px 0;
+      font-weight: normal;
+    }
+    /* Group headings (New Construction, Renovation & Other) are bold */
+    #categoryBox label.groupName { font-weight: bold; margin-top: 6px; }
+    /* Categories are indented under their group */
+    #categoryBox label.item { padding-left: 16px; }
+	
+	/* District name labels drawn on the map (nop box, just bold text) */
+	.districtLabel {
+	  background: none; 
+	  border: none;
+	  box-shadow: none; 
+	  font-family: Arial, sans-serif; 
+	  font-weight: bold; 
+	  font-size: 13px; 
+	  color: #243746; 
+	  text-shadow: 0 0 3px white, 0 0 3px white; /* white glow so it reads over parcels */
+	}
+	
+	.districtLabel::before { display: non; }  /* hide the little tooltip arrow */
+	
+	/* The Layers box: restyled to match the filter panel.
+	   "#map" at the front makes these rules beat Leaflet's own built-in styles. */
+	#map .leaflet-control-layers {
+	   font-family: Arial, sans-serif;
+	   font-size: 13px; 
+	   color: #243746; 
+	   border: none; 
+	   border-radius: 8px; 
+	   box-shadow: 0 2px 8px rgba (0,0,0,0.25); 
+	   padding: 12px 14px; 
+	}
+	/* Add a bold "Layers title above the checkboxes. ::before inserts
+       text in front of an element without touching the HTML. */
+    #map .leaflet-control-layers-list::before {
+      content: 'Layers'; 
+      display: block; 
+      font-weightL bold; 
+      margin-bottom: 4px; 
+    }	  
+  </style>
+</head>
+<body>
+
+  <!-- An empty box. Leaflet draws the map inside it. -->
+  <div id="map"></div>
+
+  <!-- The filter panel. The dropdowns start empty; JavaScript fills them from the data. -->
+  <div id="filters">
+    <label for="typeSelect">Permit Type</label>
+    <select id="typeSelect"></select>
+
+    <label for="yearSelect">Year Issued</label>
+    <select id="yearSelect"></select>
+
+    <label>Category</label>
+    <div id="categoryBox"></div>   <!-- JavaScript fills this with checkboxes -->
+
+    <div id="countLabel">Loading permits…</div>
+  </div>
+
+  <script>
+    // Create the map in the box called "map",
+    // centered on Lubbock (latitude, longitude) at zoom level 12.5
+    const map = L.map('map', { zoomSnap: 0.5}).setView([33.5779, -101.8552], 12.5);
+
+    // The background streets layer (Esri's light gray map; no key needed)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri',
+      maxZoom: 16
+    }).addTo(map);
+
+    // Street and place names, drawn on top of the gray map
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 16
+    }).addTo(map);
+	
+	// ----------------------------------------------------------------
+	// DISTRICT OUTLINES - turned on and off with the Layers box-shadow
+	// ----------------------------------------------------------------
+	
+	// A "pane" is a stacking level on the map. Parcels sit at level 400;
+	// this pane sits at 450 so district lines are never hidden under parcels.
+	map.createPane('boundaries'); 
+	map.getPane('boundaries').style.zIndex = 450; 
+	map.getPane('boundaries').style.pointerEvents = 'none';    // let your mouse "fall through" to the parcels
+	
+	// Builds one outline layer from a file. Written once, used twice.
+	//   file = which .geojson file to load
+	//   color = line color
+	//   dash = dash pattern ('6 4' = 6 px line, 4 px gap), or null for solid
+    function outlineLayer(file, color, dash) {
+      const layer = L.geoJSON(null, {              // start empty; the data arrives below
+        pane: 'boundaries', 
+        interactive: false,                        // not hoverable, so it never blocks the parcel hover box
+        style: { color: color, weight: 2.5, dashArray: dash, fill: false },    // lines only, no fill   
+        onEachFeature: (feature, l) =>
+          // Always-on label in the middle of each district  
+          l.bindTooltip(feature.properties.name, 
+            { permanent: true, direction: 'center', className: 'districtLabel' })
+       });
+      fetch(file).then(r => r.json()).then(data => layer.addData(data));
+      return layer;
+    }
+
+    const councilLayer = outlineLayer('council_districts.geojson', '#243746', null);     // slate, solid
+    const schoolLayer = outlineLayer('school_districts.geojson', '#040707', '6 4');      // black, dashed
+
+    // The Layers box: one checkbox per outline layer. Both start off
+    L.control.layers(null, {
+      'City Council Districts': councilLayer, 
+      'School Districts':       schoolLayer
+    }, { collapsed: false, position: 'bottomright' }).addTo(map); 	  
+
+    // One color per sector. Change these hex codes anytime.
+    const COLORS = {
+      Residential: '#006072',   // LEDA teal
+      Commercial:  '#4ee0b2'    // LEDA light green
+    };
+
+    let allPermits  = [];     // every permit from the file (filled in once it loads)
+    let parcelLayer = null;   // the parcels currently drawn on the map
+
+    // The categories currently ticked. A Set is a list that can't hold
+    // duplicates, with quick .add(), .delete() and .has() commands.
+    const checkedCategories = new Set();
+
+    // Does a permit match the Type and Year dropdowns? Used in two places,
+    // so it's written once here.
+    function matchesTypeYear(p, type, year) {
+      return (type === 'All' || p.sector === type)
+          && (year === 'All' || String(p.year) === year);
+    }
+
+    // Load the permits, fill the dropdowns, then draw the map
+    fetch('permits.geojson')
+      .then(response => response.json())
+      .then(data => {
+        allPermits = data.features;
+        fillDropdowns();
+        drawMap();
+      });
+
+    // ---------------------------------------------------------------
+    // fillDropdowns: builds the dropdown choices FROM THE DATA, so a new
+    // year or a new category shows up automatically. No hardcoded lists.
+    // ---------------------------------------------------------------
+    function fillDropdowns() {
+      // Collect the unique values of one property, sorted
+      const unique = name => [...new Set(allPermits.map(f => f.properties[name]))].sort();
+
+      // Helper: add one <option> to a dropdown
+      const addOption = (select, value, text) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = text || value;
+        select.appendChild(opt);
+      };
+
+      const typeSelect = document.getElementById('typeSelect');
+      addOption(typeSelect, 'All', 'All types');
+      unique('sector').forEach(s => addOption(typeSelect, s));
+
+      const yearSelect = document.getElementById('yearSelect');
+      addOption(yearSelect, 'All', 'All years');
+      unique('year').reverse().forEach(y => addOption(yearSelect, y));   // newest year first
+
+      // Start with every category ticked
+      unique('category').forEach(c => checkedCategories.add(c));
+      fillCategories();
+
+      // When Type or Year changes: rebuild the category list to fit, then redraw
+      [typeSelect, yearSelect].forEach(sel =>
+        sel.addEventListener('change', () => { fillCategories(); drawMap(); }));
+    }
+
+    // ---------------------------------------------------------------
+    // fillCategories: rebuilds the category checkboxes so they only show
+    // categories that exist for the chosen Type and Year, with counts.
+    // Ticks are remembered in checkedCategories, so a category you unticked
+    // stays unticked even if it disappears and comes back.
+    // ---------------------------------------------------------------
+    function fillCategories() {
+      const type = document.getElementById('typeSelect').value;
+      const year = document.getElementById('yearSelect').value;
+
+      // Count permits per category among the ones matching Type + Year,
+      // and note which group each category belongs to
+      const counts  = {};
+      const groupOf = {};
+      allPermits.forEach(f => {
+        const p = f.properties;
+        if (!matchesTypeYear(p, type, year)) return;   // skip non-matches
+        counts[p.category]  = (counts[p.category] || 0) + 1;
+        groupOf[p.category] = p.group;
+      });
+
+      const box = document.getElementById('categoryBox');
+      box.innerHTML = '';   // wipe the old checkboxes
+
+      // Build each group: a heading checkbox, then its categories underneath
+      ['New Construction', 'Renovation & Other'].forEach(group => {
+        const cats = Object.keys(counts).filter(c => groupOf[c] === group).sort();
+        if (cats.length === 0) return;   // nothing in this group? skip the heading too
+
+        // Group heading with its own checkbox (ticks/unticks the whole group)
+        const heading  = document.createElement('label');
+        heading.className = 'groupName';
+        const groupBox = document.createElement('input');
+        groupBox.type = 'checkbox';
+        heading.append(groupBox, group);
+        box.appendChild(heading);
+
+        // One checkbox per category
+        const childBoxes = cats.map(c => {
+          const row = document.createElement('label');
+          row.className = 'item';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.checked = checkedCategories.has(c);
+          cb.addEventListener('change', () => {
+            if (cb.checked) checkedCategories.add(c);
+            else            checkedCategories.delete(c);
+            updateHeading();
+            drawMap();
+          });
+          row.append(cb, `${c} (${counts[c].toLocaleString()})`);
+          box.appendChild(row);
+          return cb;
+        });
+
+        // Heading box shows: ticked (all), empty (none), or a dash (some)
+        function updateHeading() {
+          const ticked = childBoxes.filter(b => b.checked).length;
+          groupBox.checked       = ticked === childBoxes.length;
+          groupBox.indeterminate = ticked > 0 && ticked < childBoxes.length;
+        }
+
+        // Clicking the heading ticks or unticks EVERY category in the group,
+        // including ones hidden by the current Type/Year (so unticking
+        // "Renovation & Other" means no renovations, whatever you pick next)
+        groupBox.addEventListener('change', () => {
+          allPermits.forEach(f => {
+            if (f.properties.group !== group) return;
+            if (groupBox.checked) checkedCategories.add(f.properties.category);
+            else                  checkedCategories.delete(f.properties.category);
+          });
+          childBoxes.forEach(b => b.checked = groupBox.checked);
+          updateHeading();
+          drawMap();
+        });
+
+        updateHeading();
+      });
+    }
+
+    // ---------------------------------------------------------------
+    // drawMap: filter -> group by parcel -> draw. Runs on load and on
+    // every dropdown change.
+    // ---------------------------------------------------------------
+    function drawMap() {
+      // 1. Read what's picked in each dropdown
+      const type     = document.getElementById('typeSelect').value;
+      const year     = document.getElementById('yearSelect').value;
+
+      // 2. Keep only the permits that match the Type, the Year, AND a ticked category
+      const matches = allPermits.filter(f =>
+        matchesTypeYear(f.properties, type, year) &&
+        checkedCategories.has(f.properties.category));
+
+      // 3. Group the matching permits by parcel (R#)
+      const parcels = {};
+      matches.forEach(f => {
+        const id = f.properties.parcel;
+        if (!parcels[id]) parcels[id] = [];   // first permit on this parcel? start a list
+        parcels[id].push(f);
+      });
+
+      // 4. Turn each group into ONE shape: newest permit's details + count + total value
+      const shapes = Object.values(parcels).map(list => {
+        list.sort((a, b) => new Date(b.properties.issued) - new Date(a.properties.issued));
+        const newest = list[0];
+        const total  = list.reduce((sum, f) => sum + (f.properties.value || 0), 0);
+        return {
+          type: 'Feature',
+          geometry: newest.geometry,
+          properties: { ...newest.properties, count: list.length, total: total }
+        };
+      });
+
+      // 5. Erase the old parcels and draw the new ones
+      if (parcelLayer) map.removeLayer(parcelLayer);
+
+      parcelLayer = L.geoJSON(shapes, {
+        style: feature => ({
+          color: COLORS[feature.properties.sector],        // outline: same color as the fill
+          weight: 1,
+          fillColor: COLORS[feature.properties.sector],    // look up the color
+          fillOpacity: 0.6
+        }),
+        onEachFeature: (feature, layer) => {
+          const p = feature.properties;
+          // Only stacked parcels get the count/total line
+          const stackLine = p.count > 1
+            ? `<strong>${p.count} permits &middot; $${p.total.toLocaleString()} total</strong><br>Most recent:<br>`
+            : '';
+          layer.bindTooltip(`
+            ${stackLine}
+            <strong>${p.address}</strong><br>
+            ${p.sector} &middot; ${p.category}<br>
+            Issued ${p.issued}<br>
+            Value: $${p.value ? p.value.toLocaleString() : '&mdash;'}<br>
+            <em>${p.desc}</em>
+          `, { sticky: true });
+        }
+      }).addTo(map);
+
+      // 6. Update the count under the dropdowns
+      document.getElementById('countLabel').textContent = matches.length
+        ? `${matches.length.toLocaleString()} permits on ${shapes.length.toLocaleString()} parcels`
+        : 'No permits match. Tick at least one category.';
+    }
+  </script>
+
+</body>
+</html>
