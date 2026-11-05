@@ -1,7 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- Makes the page size itself properly on phones -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lubbock Permits Map</title>
 
   <!-- Leaflet: the free mapping library. One line for its styles, one for its code. -->
@@ -34,6 +36,30 @@
     #filters select { width: 100%; margin-top: 3px; padding: 4px; }
     #countLabel { margin-top: 10px; font-size: 12px; color: #555; }
 
+    /* The "Filters" button: hidden on computers, shown on phones (see below) */
+    #filtersToggle {
+      display: none;
+      width: 100%;
+      padding: 6px;
+      font-size: 14px;
+      font-weight: bold;
+      color: #243746;
+      background: #f2f2f2;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* PHONES: everything inside this @media block only applies when the
+       screen is 600px wide or less. */
+    @media (max-width: 600px) {
+      #filters { width: 190px; padding: 8px 10px; }
+      #filtersToggle { display: block; }              /* show the button */
+      #filtersBody { display: none; }                 /* hide the filters... */
+      #filters.open #filtersBody { display: block; }  /* ...until the panel is "open" */
+      #categoryBox { max-height: 40vh; }              /* 40% of the screen height, max */
+    }
+
     /* The category checkbox list: a scrolling box if it gets tall */
     #categoryBox {
       max-height: 260px;
@@ -55,40 +81,39 @@
     #categoryBox label.groupName { font-weight: bold; margin-top: 6px; }
     /* Categories are indented under their group */
     #categoryBox label.item { padding-left: 16px; }
-	
-	/* District name labels drawn on the map (nop box, just bold text) */
-	.districtLabel {
-	  background: none; 
-	  border: none;
-	  box-shadow: none; 
-	  font-family: Arial, sans-serif; 
-	  font-weight: bold; 
-	  font-size: 13px; 
-	  color: #243746; 
-	  text-shadow: 0 0 3px white, 0 0 3px white; /* white glow so it reads over parcels */
-	}
-	
-	.districtLabel::before { display: non; }  /* hide the little tooltip arrow */
-	
-	/* The Layers box: restyled to match the filter panel.
-	   "#map" at the front makes these rules beat Leaflet's own built-in styles. */
-	#map .leaflet-control-layers {
-	   font-family: Arial, sans-serif;
-	   font-size: 13px; 
-	   color: #243746; 
-	   border: none; 
-	   border-radius: 8px; 
-	   box-shadow: 0 2px 8px rgba (0,0,0,0.25); 
-	   padding: 12px 14px; 
-	}
-	/* Add a bold "Layers title above the checkboxes. ::before inserts
+
+    /* District name labels drawn on the map (no box, just bold text) */
+    .districtLabel {
+      background: none;
+      border: none;
+      box-shadow: none;
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      font-size: 13px;
+      color: #243746;
+      text-shadow: 0 0 3px white, 0 0 3px white, 0 0 3px white;   /* white glow so it reads over parcels */
+    }
+    .districtLabel::before { display: none; }   /* hide the little tooltip arrow */
+
+    /* The Layers box: restyled to match the filter panel.
+       "#map" at the front makes these rules beat Leaflet's own built-in styles. */
+    #map .leaflet-control-layers {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #243746;
+      border: none;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      padding: 12px 14px;
+    }
+    /* Add a bold "Layers" title above the checkboxes. ::before inserts
        text in front of an element without touching the HTML. */
     #map .leaflet-control-layers-list::before {
-      content: 'Layers'; 
-      display: block; 
-      font-weightL bold; 
-      margin-bottom: 4px; 
-    }	  
+      content: 'Layers';
+      display: block;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
   </style>
 </head>
 <body>
@@ -98,6 +123,10 @@
 
   <!-- The filter panel. The dropdowns start empty; JavaScript fills them from the data. -->
   <div id="filters">
+    <!-- Only shows on phones. Tapping it opens/closes the filters. -->
+    <button id="filtersToggle" type="button">Filters &#9662;</button>
+
+    <div id="filtersBody">
     <label for="typeSelect">Permit Type</label>
     <select id="typeSelect"></select>
 
@@ -106,14 +135,28 @@
 
     <label>Category</label>
     <div id="categoryBox"></div>   <!-- JavaScript fills this with checkboxes -->
+    </div>   <!-- end of filtersBody -->
 
+    <!-- Outside filtersBody, so the count still shows when the panel is closed -->
     <div id="countLabel">Loading permits…</div>
   </div>
 
   <script>
     // Create the map in the box called "map",
-    // centered on Lubbock (latitude, longitude) at zoom level 12.5
-    const map = L.map('map', { zoomSnap: 0.5}).setView([33.5779, -101.8552], 12.5);
+    // centered on Lubbock (latitude, longitude) at zoom level 12
+    const map = L.map('map', { scrollWheelZoom: false }).setView([33.5779, -101.8552], 12.5);
+
+    // The mouse wheel scrolls the PAGE, not the map, until someone clicks
+    // the map. Otherwise, when the map is embedded on the website, people
+    // trying to scroll past it get stuck zooming instead.
+    map.on('click',    () => map.scrollWheelZoom.enable());
+    map.on('mouseout', () => map.scrollWheelZoom.disable());
+
+    // Phones: the "Filters" button opens and closes the panel by adding or
+    // removing the class "open" (the CSS above does the actual showing/hiding)
+    document.getElementById('filtersToggle').addEventListener('click', () => {
+      document.getElementById('filters').classList.toggle('open');
+    });
 
     // The background streets layer (Esri's light gray map; no key needed)
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
@@ -125,43 +168,43 @@
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
       maxZoom: 16
     }).addTo(map);
-	
-	// ----------------------------------------------------------------
-	// DISTRICT OUTLINES - turned on and off with the Layers box-shadow
-	// ----------------------------------------------------------------
-	
-	// A "pane" is a stacking level on the map. Parcels sit at level 400;
-	// this pane sits at 450 so district lines are never hidden under parcels.
-	map.createPane('boundaries'); 
-	map.getPane('boundaries').style.zIndex = 450; 
-	map.getPane('boundaries').style.pointerEvents = 'none';    // let your mouse "fall through" to the parcels
-	
-	// Builds one outline layer from a file. Written once, used twice.
-	//   file = which .geojson file to load
-	//   color = line color
-	//   dash = dash pattern ('6 4' = 6 px line, 4 px gap), or null for solid
+
+    // ---------------------------------------------------------------
+    // DISTRICT OUTLINES — turned on and off with the Layers box
+    // ---------------------------------------------------------------
+
+    // A "pane" is a stacking level on the map. Parcels sit at level 400;
+    // this pane sits at 450 so district lines are never hidden under parcels.
+    map.createPane('boundaries');
+    map.getPane('boundaries').style.zIndex = 450;
+    map.getPane('boundaries').style.pointerEvents = 'none';   // let your mouse "fall through" to the parcels
+
+    // Builds one outline layer from a file. Written once, used twice.
+    //   file  = which .geojson file to load
+    //   color = line color
+    //   dash  = dash pattern ('6 4' = 6px line, 4px gap), or null for solid
     function outlineLayer(file, color, dash) {
-      const layer = L.geoJSON(null, {              // start empty; the data arrives below
-        pane: 'boundaries', 
-        interactive: false,                        // not hoverable, so it never blocks the parcel hover box
-        style: { color: color, weight: 2.5, dashArray: dash, fill: false },    // lines only, no fill   
+      const layer = L.geoJSON(null, {          // start empty; the data arrives below
+        pane: 'boundaries',
+        interactive: false,                    // not hoverable, so it never blocks the parcel hover box
+        style: { color: color, weight: 2.5, dashArray: dash, fill: false },   // lines only, no fill
         onEachFeature: (feature, l) =>
-          // Always-on label in the middle of each district  
-          l.bindTooltip(feature.properties.name, 
+          // Always-on label in the middle of each district
+          l.bindTooltip(feature.properties.name,
             { permanent: true, direction: 'center', className: 'districtLabel' })
-       });
+      });
       fetch(file).then(r => r.json()).then(data => layer.addData(data));
       return layer;
     }
 
-    const councilLayer = outlineLayer('council_districts.geojson', '#243746', null);     // slate, solid
-    const schoolLayer = outlineLayer('school_districts.geojson', '#040707', '6 4');      // black, dashed
+    const councilLayer = outlineLayer('council_districts.geojson', '#243746', null);    // slate, solid
+    const schoolLayer  = outlineLayer('school_districts.geojson',  '#040707', '6 4');   // black, dashed
 
-    // The Layers box: one checkbox per outline layer. Both start off
+    // The Layers box: one checkbox per outline layer. Both start off.
     L.control.layers(null, {
-      'City Council Districts': councilLayer, 
+      'City Council Districts': councilLayer,
       'School Districts':       schoolLayer
-    }, { collapsed: false, position: 'bottomright' }).addTo(map); 	  
+    }, { collapsed: false, position: 'bottomright' }).addTo(map);
 
     // One color per sector. Change these hex codes anytime.
     const COLORS = {
