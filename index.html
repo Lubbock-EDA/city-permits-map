@@ -114,6 +114,55 @@
       font-weight: bold;
       margin-bottom: 4px;
     }
+	
+	/* Thin line between the background choices and the outline layers */
+	#map .leaflet-control-layers-separator { margin: 6px 0; }
+	
+	/* "Permits through... ' Updated ..." line under the count */
+	#updatedLabel { margin-top: 4px; font-size: 11px; color: #777; } 
+	
+	/* The click-to-open permit list (a Leaflet "popup") */ 
+	.popupHeader { font-size: 14px; margin-bottom: 6px; } 
+	.popupList { 
+	  max-height: 260px;       /* long lists scroll inside the box */
+	  overflow-y: auto; 
+	  border-top: 1px solid #ddd; 
+	}
+	.popupPermit { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 12px; } 
+	.popupPermit em { color: #555; } 
+	
+	/* The map key (bottom-left): permit colors always show,
+       the zoning part only shows while the Zoning layer is on */
+    #legend {
+      background: white;
+      padding: 10px 12px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      color: #243746;
+      line-height: 1.7;
+    }
+	
+	/* The little colored square in front of each legend line */
+    .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 6px;
+      vertical-align: -1px;
+      border: 1px solid rgba(0,0,0,0.3);
+    }
+	
+    #legend strong { display: block; margin-bottom: 2px; }
+    /* The zoning section: hidden until the Zoning checkbox is ticked */
+    #zoningLegend {
+      display: none;
+      margin-top: 8px;
+      padding-top: 6px;
+      border-top: 1px solid #ddd;   /* thin line between Permits and Zoning */
+    }
+	
   </style>
 </head>
 <body>
@@ -139,11 +188,12 @@
 
     <!-- Outside filtersBody, so the count still shows when the panel is closed -->
     <div id="countLabel">Loading permits…</div>
+	<div id="updatedLabel"></div>  <!-- filled in from the dates inside permits.geojson --> 
   </div>
 
   <script>
     // Create the map in the box called "map",
-    // centered on Lubbock (latitude, longitude) at zoom level 12
+    // centered on Lubbock (latitude, longitude) at zoom level 12.5
     const map = L.map('map', { scrollWheelZoom: false }).setView([33.5779, -101.8552], 12.5);
 
     // The mouse wheel scrolls the PAGE, not the map, until someone clicks
@@ -158,16 +208,28 @@
       document.getElementById('filters').classList.toggle('open');
     });
 
-    // The background streets layer (Esri's light gray map; no key needed)
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Tiles &copy; Esri',
-      maxZoom: 16
-    }).addTo(map);
+    // ROAD map: the gray map + its street labels, bundled into one group
+    const roadMap = L.layerGroup([
+	
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri', maxZoom: 16
+      }),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 16
+      })
+    ]);
 
-    // Street and place names, drawn on top of the gray map
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 16
-    }).addTo(map);
+    // SATELLITE map: aerial photos + street names on top
+    const satelliteMap = L.layerGroup([
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics', maxZoom: 19
+      }),
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19
+      })
+    ]);
+
+    roadMap.addTo(map);   // the map starts on Road
 
     // ---------------------------------------------------------------
     // DISTRICT OUTLINES — turned on and off with the Layers box
@@ -200,17 +262,87 @@
     const councilLayer = outlineLayer('council_districts.geojson', '#243746', null);    // slate, solid
     const schoolLayer  = outlineLayer('school_districts.geojson',  '#040707', '6 4');   // black, dashed
 
-    // The Layers box: one checkbox per outline layer. Both start off.
-    L.control.layers(null, {
-      'City Council Districts': councilLayer,
+    // -------------------------------------------------------------------------------
+	// ZONING - colored areas UNDER the parcels 
+	// -------------------------------------------------------------------------------
+	
+	// One color per zoning group
+	const ZONING_COLORS = {
+	  'Single-Family':       '#f2d675',   // pale yellow
+	  'Multi-Family':        '#e0a030',   // gold 
+	  'Mixed-Use':           '#9b59b6',   // purple
+	  'Commercial & Office': '#e90802',   // Texas Tech red
+	  'Industrial':          '#6e6e6e',   // gray 
+	}; 
+	
+	// How see-through the zononing colors are (0 = invisible, 1 = solid). 
+	// Used by BOTH the map and the legend so they always match.
+	const ZONING_OPACITY = 0.3; 
+	
+	// Its own pane at level 350, so zoning sits below the parcels (400)
+	map.createPane('zoning'); 
+	map.getPane('zoning').style.zIndex = 350; 
+	
+	const zoningLayer = L.geoJSON(null, { 
+	  pane: 'zoning', 
+	  style: f => ({ 
+	    color: ZONING_COLORS[f.properties.group], 
+		fillColor: ZONING_COLORS[f.properties.group], 
+		weight: 0.5, 
+		fillOpacity: ZONING_OPACITY     // see-through so streets and parcels still show
+	  }), 
+	  
+	  // Hovering zoning (anywhere there's no parcel) shows the district
+      onEachFeature: (f, layer) =>
+        layer.bindTooltip(`<strong>${f.properties.code}</strong> &middot; ${f.properties.name}`, { sticky: true })
+    });
+    fetch('zoning.geojson').then(r => r.json()).then(data => zoningLayer.addData(data)); 
+	  
+	  // Show the legend only while the Zoning layer is turned on
+	  map.on('overlayadd', e => { if (e.layer === zoningLayer) 
+	document.getElementById('zoningLegend').style.display = 'block'; }); 
+	  map.on('overlayremove', e => { if (e.layer === zoningLayer)  
+	document.getElementById('zoningLegend').style.display = 'none'; }); 
+	  
+	
+	// The Layers box: radio buttons for the background map (first list), 
+	// checkboxes for the outline layers (second list). Overlays start off.
+	
+     L.control.layers({
+      'Road':      roadMap,
+      'Satellite': satelliteMap
+    }, {
+      'Zoning':                 zoningLayer, 
+	  'City Council Districts': councilLayer,
       'School Districts':       schoolLayer
     }, { collapsed: false, position: 'bottomright' }).addTo(map);
 
     // One color per sector. Change these hex codes anytime.
     const COLORS = {
-      Residential: '#006072',   // LEDA teal
-      Commercial:  '#4ee0b2'    // LEDA light green
+      Residential: '#efb334',   // Visit Lubbock gold
+      Commercial:  '#e90802'    // Texas Tech red
     };
+
+    // MAP KEY (bottom-left). It has to come AFTER the COLORS block,
+    // because it reads the colors from it. Permit colors always show;
+    // the zoning section only shows while the Zoning layer is on.
+    const legend = L.control({ position: 'bottomleft' });
+    legend.onAdd = () => {
+      const box = L.DomUtil.create('div');
+      box.id = 'legend';
+      box.innerHTML =
+        '<strong>Permits</strong>' +
+        Object.entries(COLORS)
+          .map(([sector, color]) => `<span class="swatch" style="background:${color}"></span>${sector}`)
+          .join('<br>') +
+        '<div id="zoningLegend"><strong>Zoning</strong>' +
+        Object.entries(ZONING_COLORS)
+          .map(([group, color]) => `<span class="swatch" style="background:${color}; opacity:${ZONING_OPACITY}"></span>${group}`)
+          .join('<br>') +
+        '</div>';
+      return box;
+    };
+    legend.addTo(map);
 
     let allPermits  = [];     // every permit from the file (filled in once it loads)
     let parcelLayer = null;   // the parcels currently drawn on the map
@@ -231,7 +363,14 @@
       .then(response => response.json())
       .then(data => {
         allPermits = data.features;
-        fillDropdowns();
+        
+		// The dates the Python script stamped at the topof permits.geojson
+		if (data.updated) { 
+		  document.getElementById('updatedLabel').textContent = 
+		    `Permits through ${data.dataThrough} · Updated ${data.updated}` ; 
+		} 
+		
+		fillDropdowns();
         drawMap();
       });
 
@@ -378,7 +517,7 @@
         return {
           type: 'Feature',
           geometry: newest.geometry,
-          properties: { ...newest.properties, count: list.length, total: total }
+          properties: { ...newest.properties, count: list.length, total: total, permits: list }
         };
       });
 
@@ -387,25 +526,47 @@
 
       parcelLayer = L.geoJSON(shapes, {
         style: feature => ({
-          color: COLORS[feature.properties.sector],        // outline: same color as the fill
-          weight: 1,
+          color: '#ffffff',        // outline: white
+          weight: 0.5,
           fillColor: COLORS[feature.properties.sector],    // look up the color
-          fillOpacity: 0.6
+          fillOpacity: 0.85
         }),
         onEachFeature: (feature, layer) => {
           const p = feature.properties;
-          // Only stacked parcels get the count/total line
-          const stackLine = p.count > 1
-            ? `<strong>${p.count} permits &middot; $${p.total.toLocaleString()} total</strong><br>Most recent:<br>`
-            : '';
+ 
+          // HOVER: a quick summary
+          const summary = p.count > 1
+            ? `${p.count} permits &middot; $${p.total.toLocaleString()} total`
+            : `${p.category} &middot; $${p.value ? p.value.toLocaleString() : '&mdash;'}`;
           layer.bindTooltip(`
-            ${stackLine}
             <strong>${p.address}</strong><br>
-            ${p.sector} &middot; ${p.category}<br>
-            Issued ${p.issued}<br>
-            Value: $${p.value ? p.value.toLocaleString() : '&mdash;'}<br>
-            <em>${p.desc}</em>
+            ${summary}<br>
+            <em>Click for details</em>
           `, { sticky: true });
+		  // When the mouse lands on a parcel, close any zoning hover box,
+          // so the two boxes never show at the same time
+          layer.on('mouseover', () => zoningLayer.eachLayer(z => z.closeTooltip()));
+ 
+          // CLICK: a box listing EVERY permit on this parcel (newest first).
+          // It stays open until the X is clicked (closeOnClick: false).
+          // Written as a function ( () => ... ) so the list is only built
+          // when someone actually clicks, not for all 14,000+ parcels up front.
+          layer.bindPopup(() => {
+            const rows = p.permits.map(f => {
+              const q = f.properties;
+              return `<div class="popupPermit">
+                        <strong>${q.issued}</strong> &middot; ${q.category} &middot; $${q.value ? q.value.toLocaleString() : '&mdash;'}<br>
+                        ${q.permit} &middot; ${q.status}<br>
+                        <em>${q.desc}</em>
+                      </div>`;
+            }).join('');
+            return `
+              <div class="popupHeader">
+                <strong>${p.address}</strong><br>
+                ${p.count} ${p.count === 1 ? 'permit' : 'permits'} &middot; $${p.total.toLocaleString()} total
+              </div>
+              <div class="popupList">${rows}</div>`;
+          }, { maxWidth: 320, closeOnClick: false });
         }
       }).addTo(map);
 
