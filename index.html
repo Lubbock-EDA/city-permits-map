@@ -16,25 +16,68 @@
     /* The map's box: full width, full height */
     #map { height: 100%; }
 
-    /* The filter panel: a white card floating over the top-right of the map */
+    /* The filter bar: one white strip across the top of the map.
+       left: 56px leaves room for the + / - zoom buttons. */
     #filters {
       position: absolute;        /* float on top of the map instead of pushing it down */
-      top: 12px;
-      right: 12px;
+      top: 10px;
+      left: 56px;
+      right: 10px;
       z-index: 1000;             /* stack it above the map (bigger number = higher) */
       background: white;
-      padding: 12px 14px;
+      padding: 8px 12px;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.25);
       font-family: Arial, sans-serif;
       font-size: 13px;
       color: #243746;
-      width: 220px;
+      display: flex;             /* lay everything out in a row... */
+      align-items: flex-end;     /* ...lined up along the bottom edge */
+      gap: 16px;
+      flex-wrap: wrap;           /* drop to a second row if the map is narrow */
     }
-    /* Each label sits on its own line above its dropdown */
-    #filters label { display: block; margin-top: 8px; font-weight: bold; }
-    #filters select { width: 100%; margin-top: 3px; padding: 4px; }
-    #countLabel { margin-top: 10px; font-size: 12px; color: #555; }
+    /* The three filters, side by side */
+    #filtersBody { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+    /* Each filter's name sits above its dropdown */
+    .filterItem > label { display: block; font-weight: bold; margin-bottom: 3px; }
+    .filterItem select,
+    #categoryButton {
+      min-width: 150px;
+      padding: 4px 6px;
+      font-size: 13px;
+    }
+
+    /* The Category button looks like the dropdowns next to it */
+    #categoryButton {
+      background: white;
+      color: #243746;
+      border: 1px solid #767676;
+      border-radius: 3px;
+      text-align: left;
+      cursor: pointer;
+    }
+    /* The checklist hangs below the Category button, hidden until clicked */
+    #categoryItem { position: relative; }   /* the checklist positions itself from here */
+    #categoryBox {
+      display: none;
+      position: absolute;
+      top: 100%;                 /* just below the button */
+      left: 0;
+      margin-top: 4px;
+      width: 250px;
+      max-height: 300px;
+      overflow-y: auto;          /* add a scrollbar instead of growing forever */
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 4px 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    #categoryItem.open #categoryBox { display: block; }   /* "open" = show the checklist */
+
+    /* Count + date, pushed to the right end of the bar */
+    #status { margin-left: auto; text-align: right; }
+    #countLabel { font-size: 12px; color: #555; }
 
     /* The "Filters" button: hidden on computers, shown on phones (see below) */
     #filtersToggle {
@@ -51,24 +94,17 @@
     }
 
     /* PHONES: everything inside this @media block only applies when the
-       screen is 600px wide or less. */
+       screen is 600px wide or less. The bar turns into a stacked panel. */
     @media (max-width: 600px) {
-      #filters { width: 190px; padding: 8px 10px; }
-      #filtersToggle { display: block; }              /* show the button */
-      #filtersBody { display: none; }                 /* hide the filters... */
-      #filters.open #filtersBody { display: block; }  /* ...until the panel is "open" */
-      #categoryBox { max-height: 40vh; }              /* 40% of the screen height, max */
+      #filters { flex-direction: column; align-items: stretch; gap: 8px; }
+      #filtersToggle { display: block; }                    /* show the button */
+      #filtersBody { display: none; flex-direction: column; align-items: stretch; }
+      #filters.open #filtersBody { display: flex; }         /* ...until the panel is "open" */
+      .filterItem select, #categoryButton { width: 100%; }
+      #categoryBox { position: static; width: auto; max-height: 40vh; }   /* opens in place, not as a pop-out */
+      #status { margin-left: 0; text-align: left; }
     }
 
-    /* The category checkbox list: a scrolling box if it gets tall */
-    #categoryBox {
-      max-height: 260px;
-      overflow-y: auto;          /* add a scrollbar instead of growing forever */
-      margin-top: 3px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      padding: 4px 6px;
-    }
     /* Each checkbox + its text on one line */
     #categoryBox label {
       display: flex;
@@ -114,24 +150,23 @@
       font-weight: bold;
       margin-bottom: 4px;
     }
-	
-	/* Thin line between the background choices and the outline layers */
-	#map .leaflet-control-layers-separator { margin: 6px 0; }
-	
-	/* "Permits through... ' Updated ..." line under the count */
-	#updatedLabel { margin-top: 4px; font-size: 11px; color: #777; } 
-	
-	/* The click-to-open permit list (a Leaflet "popup") */ 
-	.popupHeader { font-size: 14px; margin-bottom: 6px; } 
-	.popupList { 
-	  max-height: 260px;       /* long lists scroll inside the box */
-	  overflow-y: auto; 
-	  border-top: 1px solid #ddd; 
-	}
-	.popupPermit { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 12px; } 
-	.popupPermit em { color: #555; } 
-	
-	/* The map key (bottom-left): permit colors always show,
+    /* Thin line between the background choices and the outline layers */
+    #map .leaflet-control-layers-separator { margin: 6px 0; }
+
+    /* "Permits through ... · Updated ..." line under the count */
+    #updatedLabel { margin-top: 4px; font-size: 11px; color: #777; }
+
+    /* The click-to-open permit list (a Leaflet "popup") */
+    .popupHeader { font-size: 14px; margin-bottom: 6px; }
+    .popupList {
+      max-height: 260px;         /* long lists scroll inside the box */
+      overflow-y: auto;
+      border-top: 1px solid #ddd;
+    }
+    .popupPermit { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 12px; }
+    .popupPermit em { color: #555; }
+
+    /* The map key (bottom-left): permit colors always show,
        the zoning part only shows while the Zoning layer is on */
     #legend {
       background: white;
@@ -143,17 +178,6 @@
       color: #243746;
       line-height: 1.7;
     }
-	
-	/* The little colored square in front of each legend line */
-    .swatch {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      margin-right: 6px;
-      vertical-align: -1px;
-      border: 1px solid rgba(0,0,0,0.3);
-    }
-	
     #legend strong { display: block; margin-bottom: 2px; }
     /* The zoning section: hidden until the Zoning checkbox is ticked */
     #zoningLegend {
@@ -162,7 +186,15 @@
       padding-top: 6px;
       border-top: 1px solid #ddd;   /* thin line between Permits and Zoning */
     }
-	
+    /* The little colored square in front of each legend line */
+    .swatch {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      margin-right: 6px;
+      vertical-align: -1px;
+      border: 1px solid rgba(0,0,0,0.3);
+    }
   </style>
 </head>
 <body>
@@ -170,30 +202,40 @@
   <!-- An empty box. Leaflet draws the map inside it. -->
   <div id="map"></div>
 
-  <!-- The filter panel. The dropdowns start empty; JavaScript fills them from the data. -->
+  <!-- The filter bar. The dropdowns start empty; JavaScript fills them from the data. -->
   <div id="filters">
     <!-- Only shows on phones. Tapping it opens/closes the filters. -->
     <button id="filtersToggle" type="button">Filters &#9662;</button>
 
     <div id="filtersBody">
-    <label for="typeSelect">Permit Type</label>
-    <select id="typeSelect"></select>
+      <div class="filterItem">
+        <label for="typeSelect">Permit Type</label>
+        <select id="typeSelect"></select>
+      </div>
 
-    <label for="yearSelect">Year Issued</label>
-    <select id="yearSelect"></select>
+      <div class="filterItem">
+        <label for="yearSelect">Year Issued</label>
+        <select id="yearSelect"></select>
+      </div>
 
-    <label>Category</label>
-    <div id="categoryBox"></div>   <!-- JavaScript fills this with checkboxes -->
+      <!-- Category: a button that drops the checklist open -->
+      <div class="filterItem" id="categoryItem">
+        <label>Category</label>
+        <button id="categoryButton" type="button">All categories &#9662;</button>
+        <div id="categoryBox"></div>   <!-- JavaScript fills this with checkboxes -->
+      </div>
     </div>   <!-- end of filtersBody -->
 
-    <!-- Outside filtersBody, so the count still shows when the panel is closed -->
-    <div id="countLabel">Loading permits…</div>
-	<div id="updatedLabel"></div>  <!-- filled in from the dates inside permits.geojson --> 
+    <!-- Outside filtersBody, so the count still shows when the phone panel is closed -->
+    <div id="status">
+      <div id="countLabel">Loading permits…</div>
+      <div id="updatedLabel"></div>   <!-- filled in from the dates inside permits.geojson -->
+    </div>
   </div>
 
   <script>
     // Create the map in the box called "map",
-    // centered on Lubbock (latitude, longitude) at zoom level 12.5
+    // centered on Lubbock (latitude, longitude) at zoom level 12
     const map = L.map('map', { scrollWheelZoom: false }).setView([33.5779, -101.8552], 12.5);
 
     // The mouse wheel scrolls the PAGE, not the map, until someone clicks
@@ -208,9 +250,18 @@
       document.getElementById('filters').classList.toggle('open');
     });
 
+    // The Category button opens and closes its checklist the same way
+    const categoryItem = document.getElementById('categoryItem');
+    document.getElementById('categoryButton').addEventListener('click', () => {
+      categoryItem.classList.toggle('open');
+    });
+    // Clicking anywhere OUTSIDE the Category area closes the checklist
+    document.addEventListener('click', e => {
+      if (!categoryItem.contains(e.target)) categoryItem.classList.remove('open');
+    });
+
     // ROAD map: the gray map + its street labels, bundled into one group
     const roadMap = L.layerGroup([
-	
       L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
         attribution: 'Tiles &copy; Esri', maxZoom: 16
       }),
@@ -262,65 +313,61 @@
     const councilLayer = outlineLayer('council_districts.geojson', '#243746', null);    // slate, solid
     const schoolLayer  = outlineLayer('school_districts.geojson',  '#040707', '6 4');   // black, dashed
 
-    // -------------------------------------------------------------------------------
-	// ZONING - colored areas UNDER the parcels 
-	// -------------------------------------------------------------------------------
-	
-	// One color per zoning group
-	const ZONING_COLORS = {
-	  'Single-Family':       '#f2d675',   // pale yellow
-	  'Multi-Family':        '#e0a030',   // gold 
-	  'Mixed-Use':           '#9b59b6',   // purple
-	  'Commercial & Office': '#e90802',   // Texas Tech red
-	  'Industrial':          '#6e6e6e',   // gray 
-	}; 
-	
-	// How see-through the zononing colors are (0 = invisible, 1 = solid). 
-	// Used by BOTH the map and the legend so they always match.
-	const ZONING_OPACITY = 0.3; 
-	
-	// Its own pane at level 350, so zoning sits below the parcels (400)
-	map.createPane('zoning'); 
-	map.getPane('zoning').style.zIndex = 350; 
-	
-	const zoningLayer = L.geoJSON(null, { 
-	  pane: 'zoning', 
-	  style: f => ({ 
-	    color: ZONING_COLORS[f.properties.group], 
-		fillColor: ZONING_COLORS[f.properties.group], 
-		weight: 0.5, 
-		fillOpacity: ZONING_OPACITY     // see-through so streets and parcels still show
-	  }), 
-	  
-	  // Hovering zoning (anywhere there's no parcel) shows the district
+    // ---------------------------------------------------------------
+    // ZONING — colored areas UNDER the parcels
+    // ---------------------------------------------------------------
+
+    // One color per zoning group
+    const ZONING_COLORS = {
+      'Single-Family':       '#f2d675',   // pale yellow
+      'Multi-Family':        '#e0a030',   // gold
+      'Mixed-Use':           '#966f45',   // Visit Lubbock brown
+      'Commercial & Office': '#e46a9b',   // rose
+      'Industrial':          '#6e6e6e'    // gray
+    };
+
+    // How see-through the zoning colors are (0 = invisible, 1 = solid).
+    // Used by BOTH the map and the legend, so they always match.
+    const ZONING_OPACITY = 0.3;
+
+    // Its own pane at level 350, so zoning sits BELOW the parcels (400)
+    map.createPane('zoning');
+    map.getPane('zoning').style.zIndex = 350;
+
+    const zoningLayer = L.geoJSON(null, {
+      pane: 'zoning',
+      style: f => ({
+        color: ZONING_COLORS[f.properties.group],
+        fillColor: ZONING_COLORS[f.properties.group],
+        weight: 0.5,
+        fillOpacity: ZONING_OPACITY   // see-through, so streets and parcels still show
+      }),
+      // Hovering zoning (anywhere there's no parcel) shows the district
       onEachFeature: (f, layer) =>
         layer.bindTooltip(`<strong>${f.properties.code}</strong> &middot; ${f.properties.name}`, { sticky: true })
     });
-    fetch('zoning.geojson').then(r => r.json()).then(data => zoningLayer.addData(data)); 
-	  
-	  // Show the legend only while the Zoning layer is turned on
-	  map.on('overlayadd', e => { if (e.layer === zoningLayer) 
-	document.getElementById('zoningLegend').style.display = 'block'; }); 
-	  map.on('overlayremove', e => { if (e.layer === zoningLayer)  
-	document.getElementById('zoningLegend').style.display = 'none'; }); 
-	  
-	
-	// The Layers box: radio buttons for the background map (first list), 
-	// checkboxes for the outline layers (second list). Overlays start off.
-	
-     L.control.layers({
+    fetch('zoning.geojson').then(r => r.json()).then(data => zoningLayer.addData(data));
+
+
+    // Show the legend only while the Zoning layer is turned on
+    map.on('overlayadd',    e => { if (e.layer === zoningLayer) document.getElementById('zoningLegend').style.display = 'block'; });
+    map.on('overlayremove', e => { if (e.layer === zoningLayer) document.getElementById('zoningLegend').style.display = 'none'; });
+
+    // The Layers box: radio buttons for the background (first list),
+    // checkboxes for the outline layers (second list). Overlays start off.
+    L.control.layers({
       'Road':      roadMap,
       'Satellite': satelliteMap
     }, {
-      'Zoning':                 zoningLayer, 
-	  'City Council Districts': councilLayer,
+      'Zoning':                 zoningLayer,
+      'City Council Districts': councilLayer,
       'School Districts':       schoolLayer
     }, { collapsed: false, position: 'bottomright' }).addTo(map);
 
     // One color per sector. Change these hex codes anytime.
     const COLORS = {
       Residential: '#efb334',   // Visit Lubbock gold
-      Commercial:  '#e90802'    // Texas Tech red
+      Commercial:  '#7b3fbf'    // violet
     };
 
     // MAP KEY (bottom-left). It has to come AFTER the COLORS block,
@@ -363,14 +410,14 @@
       .then(response => response.json())
       .then(data => {
         allPermits = data.features;
-        
-		// The dates the Python script stamped at the topof permits.geojson
-		if (data.updated) { 
-		  document.getElementById('updatedLabel').textContent = 
-		    `Permits through ${data.dataThrough} · Updated ${data.updated}` ; 
-		} 
-		
-		fillDropdowns();
+
+        // The dates the Python script stamped at the top of permits.geojson
+        if (data.updated) {
+          document.getElementById('updatedLabel').textContent =
+            `Permits through ${data.dataThrough} · Updated ${data.updated}`;
+        }
+
+        fillDropdowns();
         drawMap();
       });
 
@@ -397,6 +444,10 @@
       const yearSelect = document.getElementById('yearSelect');
       addOption(yearSelect, 'All', 'All years');
       unique('year').reverse().forEach(y => addOption(yearSelect, y));   // newest year first
+
+      // Start on the most recent year. options[0] is "All years",
+      // so options[1] is the newest year in the data.
+      yearSelect.value = yearSelect.options[1].value;
 
       // Start with every category ticked
       unique('category').forEach(c => checkedCategories.add(c));
@@ -526,14 +577,14 @@
 
       parcelLayer = L.geoJSON(shapes, {
         style: feature => ({
-          color: '#ffffff',        // outline: white
+          color: '#ffffff',                                 // thin white outline: pops on satellite
           weight: 0.5,
-          fillColor: COLORS[feature.properties.sector],    // look up the color
+          fillColor: COLORS[feature.properties.sector],     // look up the color
           fillOpacity: 0.85
         }),
         onEachFeature: (feature, layer) => {
           const p = feature.properties;
- 
+
           // HOVER: a quick summary
           const summary = p.count > 1
             ? `${p.count} permits &middot; $${p.total.toLocaleString()} total`
@@ -543,10 +594,11 @@
             ${summary}<br>
             <em>Click for details</em>
           `, { sticky: true });
-		  // When the mouse lands on a parcel, close any zoning hover box,
+
+          // When the mouse lands on a parcel, close any zoning hover box,
           // so the two boxes never show at the same time
           layer.on('mouseover', () => zoningLayer.eachLayer(z => z.closeTooltip()));
- 
+
           // CLICK: a box listing EVERY permit on this parcel (newest first).
           // It stays open until the X is clicked (closeOnClick: false).
           // Written as a function ( () => ... ) so the list is only built
@@ -570,7 +622,15 @@
         }
       }).addTo(map);
 
-      // 6. Update the count under the dropdowns
+      // 6. Category button text: "All categories", or "3 of 12 categories"
+      const boxes  = [...document.querySelectorAll('#categoryBox label.item input')];
+      const ticked = boxes.filter(b => b.checked).length;
+      document.getElementById('categoryButton').innerHTML =
+        (ticked === boxes.length ? 'All categories'
+         : ticked === 0          ? 'None selected'
+         : `${ticked} of ${boxes.length} categories`) + ' &#9662;';
+
+      // 7. Update the count
       document.getElementById('countLabel').textContent = matches.length
         ? `${matches.length.toLocaleString()} permits on ${shapes.length.toLocaleString()} parcels`
         : 'No permits match. Tick at least one category.';
